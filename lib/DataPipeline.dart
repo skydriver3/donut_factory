@@ -31,6 +31,13 @@ class DataPipeline {
       "https://script.google.com/macros/s/AKfycbzvD7JFs9QjK3F6vYGEoEp-Xhy7SlVj2odFMRdnZ6n10or9PIU5iCRb7UupSmy294EDiA/exec";
   static const STATUS_SUCCESS = "SUCCESS";
 
+  static Future<Map<String, int>> getData() async {
+    return http.get(URL).then((response) {
+      var json = convert.jsonDecode(response.body) as List;
+      return Map<String, int>.from(json[0]);
+    });
+  }
+
   void submitForm(OrderForm form, void Function(String) callback) async {
     try {
       var json = form.toJson();

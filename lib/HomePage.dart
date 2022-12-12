@@ -19,15 +19,6 @@ class Pickup {
 class MyHomePage extends StatefulWidget {
   const MyHomePage({super.key});
 
-  // This widget is the home page of your application. It is stateful, meaning
-  // that it has a State object (defined below) that contains fields that affect
-  // how it looks.
-
-  // This class is the configuration for the state. It holds the values (in this
-  // case the title) provided by the parent (in this case the App widget) and
-  // used by the build method of the State. Fields in a Widget subclass are
-  // always marked "final".
-
   @override
   State<MyHomePage> createState() => _MyHomePageState();
 }
@@ -35,17 +26,78 @@ class MyHomePage extends StatefulWidget {
 class _MyHomePageState extends State<MyHomePage> {
   TextEditingController _commandController = TextEditingController(text: "1");
   int _donutNumber = 1;
-  int _donutsLeft = 20;
+  late int _donutsLeft = 1;
+  bool loading = false;
+  bool smallLoading = false;
+  Future<Map<String, int>> get getData async {
+    return DataPipeline.getData();
+  }
+
   double price = 1.5;
-  String? chosenPickupPoint;
+  String? chosenPickupPoint = Pickup.MartinV;
+  List<int> openHours = [];
+
+  void Update(Map<String, int> value) {
+    _donutsLeft = value["numbers_left"]!;
+    openHours.clear();
+    openHours.add(value["start"]!);
+    openHours.add(value["end"]!);
+  }
+
+  void StateUpdate(Map<String, int> json) {
+//    setState(() => Update(json));
+    setState(
+      () {
+        _donutsLeft = json["numbers_left"]!;
+        openHours.clear();
+        openHours.add(json["start"]!);
+        openHours.add(json["end"]!);
+      },
+    );
+  }
+
+  void AsyncUpdate() async {
+    var json = await DataPipeline.getData();
+    print("$json");
+  }
+
+  _initLoad(bool value) {
+    setState(() {
+      loading = value;
+    });
+  }
+
+  _smallLoad(bool value) {
+    if (value)
+      _loadingDialog();
+    else
+      _orderCallback();
+    setState(() {
+      smallLoading = value;
+    });
+  }
+
+  Future load(Function(bool) loadCallback) async {
+    loadCallback(true);
+    StateUpdate(await DataPipeline.getData());
+    loadCallback(false);
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    load(_initLoad);
+  }
 
   _commandRow() => Row(children: [
         Expanded(child: Container()),
         Padding(
             padding: EdgeInsets.symmetric(horizontal: 20),
             child: IconButton(
-                onPressed: () => setState(() => _commandController.text =
-                    "${_donutNumber > 1 ? --_donutNumber : 1}"),
+                onPressed: () {
+                  setState(() => _commandController.text =
+                      "${_donutNumber > 1 ? --_donutNumber : 1}");
+                },
                 icon: Icon(Icons.remove))),
         Container(
             decoration: BoxDecoration(
@@ -65,8 +117,10 @@ class _MyHomePageState extends State<MyHomePage> {
             padding: EdgeInsets.symmetric(horizontal: 20),
             child: IconButton(
                 //Make sure to refresh the donuts left when doing this and when sending the order
-                onPressed: () => setState(() => _commandController.text =
-                    "${_donutNumber < _donutsLeft ? ++_donutNumber : _donutsLeft}"),
+                onPressed: () => setState(() {
+                      _commandController.text =
+                          "${_donutNumber < _donutsLeft ? ++_donutNumber : _donutsLeft}";
+                    }),
                 icon: Icon(Icons.add))),
         Expanded(
           child: Container(),
@@ -109,10 +163,50 @@ class _MyHomePageState extends State<MyHomePage> {
               ElevatedButton(
                   onPressed: () {
                     Navigator.pop(context);
+                    setState(() => _donutsLeft = _donutsLeft);
                   },
                   child: Text("OK"))
             ])),
       );
+
+  Widget Function(BuildContext) _exceptionDialogWrapper(bool isTimeOut) =>
+      (BuildContext context) => AlertDialog(
+          title: Text("OOPS"),
+          content: isTimeOut
+              ? Text(
+                  "Nous ne sommes actuellement pas en service.\nRegardez les heures d'ouvertures pour voire quand vous pouvez commander.",
+                  style: TextStyle(fontFamily: "Calibri"))
+              : Text(
+                  "Il semblerait que la quantité commandée excède notre stock restant pour ce service.",
+                  style: TextStyle(fontFamily: "Calibri")));
+
+  _loadingDialog() => AlertDialog(
+        content: Container(child: _loadingWidget(isOrder: true)),
+      );
+
+  _orderCallback() {
+    var now = DateTime.now();
+    var time = now.hour + (now.minute / 60);
+
+    if (!(time > openHours[0] && time < openHours[1])) {
+      Navigator.pop(context);
+      showDialog(context: context, builder: _exceptionDialogWrapper(true));
+    } else if (_donutNumber > _donutsLeft) {
+      Navigator.pop(context);
+      showDialog(context: context, builder: _exceptionDialogWrapper(false));
+    } else {
+      OrderForm form = OrderForm(chosenPickupPoint!, _donutNumber.toString(),
+          "false", DateTime.now().toString(), "Dimitri");
+      DataPipeline stream = DataPipeline();
+      stream.submitForm(form, (String response) {
+        Navigator.pop(context);
+        if (response == DataPipeline.STATUS_SUCCESS)
+          showDialog(context: context, builder: _successDialog);
+        else
+          showDialog(context: context, builder: _errorDialog);
+      });
+    }
+  }
 
   Widget _confirmationDialog(BuildContext context) => AlertDialog(
         title: Text("VOTRE COMMANDE : ", style: TextStyle(fontSize: 16)),
@@ -124,29 +218,19 @@ class _MyHomePageState extends State<MyHomePage> {
                       "${_donutNumber} Donuts : ${(price * _donutNumber).toStringAsFixed(2)}€ (liquide)",
                       style: TextStyle(fontSize: 20, fontFamily: "Calibri"))),
               ElevatedButton(
-                  onPressed: () {
-                    OrderForm form = OrderForm(
-                        chosenPickupPoint!,
-                        _donutNumber.toString(),
-                        "false",
-                        DateTime.now().toString(),
-                        "Dimitri");
-                    DataPipeline stream = DataPipeline();
-                    stream.submitForm(form, (String response) {
-                      Navigator.pop(context);
-                      if (response == DataPipeline.STATUS_SUCCESS)
-                        showDialog(context: context, builder: _successDialog);
-                      else
-                        showDialog(context: context, builder: _errorDialog);
-                    });
+                  onPressed: () async {
+                    Navigator.pop(context);
+                    showDialog(
+                        context: context,
+                        builder: (context) => _loadingDialog());
+                    await load(_smallLoad);
                   },
                   child: Text("CONFIRMER"))
             ])),
       );
 
-  _orderButton() => TextButton(
-      onPressed: () =>
-          showDialog(context: context, builder: _confirmationDialog),
+  _orderButton() => GestureDetector(
+      onTap: () => showDialog(context: context, builder: _confirmationDialog),
       child: Stack(
         children: [
           Center(
@@ -225,48 +309,78 @@ class _MyHomePageState extends State<MyHomePage> {
 
   _notAvailable() => Center(child: Text("Prochain service dans "));
 
+  _mainPage() => Container(
+      color: Colors.amber[400],
+      child: ListView(
+        children: [
+          Container(
+              decoration: BoxDecoration(
+                  image: DecorationImage(
+                      image: AssetImage("assets/BackGround.png"),
+                      fit: BoxFit.fill)),
+              height: 200,
+              child: Image.asset("assets/Logo_black_circle.png",
+                  fit: BoxFit.contain)),
+          Container(
+              constraints: BoxConstraints(minHeight: 40, maxHeight: 60),
+//              alignment: Alignment.center,
+              child: Center(
+                  child: Text("COMBIEN DE DONUTS VOULEZ-VOUS ?",
+                      textAlign: TextAlign.center,
+                      style: Theme.of(context).textTheme.bodyText2))),
+          Container(
+              child: Center(
+                  child: Text(
+            openHours[0] > (DateTime.now().hour + DateTime.now().minute / 60) ||
+                    openHours[1] <
+                        (DateTime.now().hour + DateTime.now().minute / 60)
+                ? "HEURES D'OUVERTURE : ${openHours[0]}h - ${openHours[1]}h"
+                : "! ${_donutsLeft} RESTANTS CE SERVICE (${openHours[0]}h-${openHours[1]}h) !",
+            style: TextStyle(color: Colors.red, fontSize: 12),
+          ))),
+          Container(height: 60, child: _commandRow()),
+          Container(
+              alignment: Alignment.center,
+              height: 50,
+              child: Text("CHOISISSEZ UN PICK-UP POINT ",
+                  textAlign: TextAlign.center,
+                  style: Theme.of(context).textTheme.bodyText2)),
+          Container(
+            height: 60,
+            child: Center(child: _dropDown()),
+            padding: EdgeInsets.symmetric(horizontal: 5),
+          ),
+          Container(height: 100, child: _orderButton()),
+          _imageGrid()
+        ],
+      ));
+
+  double _turns = 2 * pi;
+  _loadingWidget({bool isOrder = false}) => TweenAnimationBuilder(
+      tween: Tween<double>(begin: 0.0, end: _turns),
+      duration: Duration(seconds: 2),
+      builder: ((context, value, child) {
+        return Transform.rotate(
+          angle: value,
+          child: child,
+        );
+      }),
+      child: Container(
+          height: 80, width: 80, child: Image.asset("assets/loading_logo.png")),
+      onEnd: () {
+        setState(() {
+          _turns += 2 * pi;
+        });
+      });
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-        body: Container(
-            color: Colors.amber[400],
-            child: ListView(
-              children: [
-                Container(
-                    decoration: BoxDecoration(
-                        image: DecorationImage(
-                            image: AssetImage("assets/BackGround.png"),
-                            fit: BoxFit.fill)),
-                    height: 200,
-                    child: Image.asset("assets/Logo_black_circle.png",
-                        fit: BoxFit.contain)),
-                Container(
-                    height: 40,
-                    alignment: Alignment.center,
-                    child: Text("COMBIEN DE DONUTS VOULEZ-VOUS ?",
-                        textAlign: TextAlign.center,
-                        style: Theme.of(context).textTheme.bodyText2)),
-                Container(
-                    child: Center(
-                        child: Text(
-                  "! ${_donutsLeft} RESTANTS CE SERVICE !",
-                  style: TextStyle(color: Colors.red, fontSize: 12),
-                ))),
-                Container(height: 60, child: _commandRow()),
-                Container(
-                    alignment: Alignment.center,
-                    height: 50,
-                    child: Text("CHOISISSEZ UN PICK-UP POINT ",
-                        textAlign: TextAlign.center,
-                        style: Theme.of(context).textTheme.bodyText2)),
-                Container(
-                  height: 60,
-                  child: Center(child: _dropDown()),
-                  padding: EdgeInsets.symmetric(horizontal: 5),
-                ),
-                Container(height: 100, child: _orderButton()),
-                _imageGrid()
-              ],
-            )));
+        body: loading
+            ? Container(
+                color: Colors.amber,
+                child: Center(child: _loadingWidget()),
+              )
+            : _mainPage());
   }
 }
