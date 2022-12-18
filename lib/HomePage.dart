@@ -196,7 +196,7 @@ class _MyHomePageState extends State<MyHomePage> {
       showDialog(context: context, builder: _exceptionDialogWrapper(false));
     } else {
       OrderForm form = OrderForm(chosenPickupPoint!, _donutNumber.toString(),
-          "false", DateTime.now().toString(), "Dimitri");
+          "false", DateTime.now().toString(), "");
       DataPipeline stream = DataPipeline();
       stream.submitForm(form, (String response) {
         Navigator.pop(context);
